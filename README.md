@@ -1,6 +1,3 @@
-[APUE](https://book.douban.com/subject/25900403/) Note
-
-
 # 1 前言
 
 [UNIX环境高级编程](https://book.douban.com/subject/25900403/)是一本久负盛名的书籍，本博客系列将会重点学习本书并附上学习笔记。为了尝试书中的代码，在 `MacOS` 操作系统如下操作：
@@ -14,6 +11,7 @@
 
 ## 2.1 体系结构
 ![](./_image/2019-06-09-14-00-19.jpg)
+
 内核处于环境的核心，管理整个计算机的硬件资源；内核的接口称为系统调用，公用函数库构建在系统调用之上，应用程序既可以使用系统调用，也可以使用公用函数库。
 
 ## 2.2 登录
@@ -80,6 +78,7 @@ root:*:0:0:System Administrator:/var/root:/bin/sh
 - write
 - lseek
 - close
+
 这些函数都是不带缓冲的 `I/O`，每个 `read` 和 `write` 都调用内核中的一个系统调用。
 
 ## 3.2 文件描述符
@@ -96,7 +95,7 @@ int openat(int fd, const char *path, int oflag, ... );
 `path` 为打开或者创建的文件名，`oflag` 设置文件打开或者创建的选项：
 - O_RDONLY: 只读打开
 - O_WRONLY: 只写打开
-- O_RDWR: 学习打开
+- O_RDWR: 读写打开
 - O_APPEND: 追加到文件末尾
 - ...
 
@@ -1290,3 +1289,477 @@ int pthread_barrier_init(pthread_barrier_t *restrict barrier, const pthread_barr
 int pthread_barrier_wait(pthread_barrier_t *barrier);
 ```
 初始化的时候 `count` 指定需要等待的线程数量。
+
+
+# 12 线程控制
+
+## 12.1 线程限制
+系统对于线程的限制可以通过 `sysconf` 函数查询
+- `PTHREAD_DESCRIPTOR_ITERATEIONS`: 线程退出时系统实现试图销毁线程特定数据的最大次数
+- `PTHREAD_KEYS_MAX`：进程可以创建键最大的数目
+- `PTHREAD_STACK_MIN`：一个线程栈可用的最小字节
+- `PTHREAD_THREADS_MAX`：进程可以创建的最大线程数
+
+## 12.2 线程属性
+- 每个对象与它自己类型的属性对象关联，每个属性对象包含多个属性，而且对象对于应用程序是透明的，只提供操作的函数。
+- 一个初始化函数，设置为默认值；
+- 一个销毁属性对象的函数，销毁分配的资源；
+- 每个属性都有从属性对象中获取值的函数；
+- 每个属性都有一个设置属性值的函数；
+
+## 12.3 同步属性
+### 12.3.1 互斥量属性
+属性用 `pthread_mutexattr_t` 结构表示
+```c
+# include <pthread.h>
+int pthread_mutexattr_init(pthread_mutexattr_t *attr);
+int pthread_mutexattr_destrory(pthread_mutexattr_t *attr);
+```
+值的注意的是 3 个属性：
+1. 进程共享属性，其值为 `PTHREAD_PROCESS_PRIVATE`, 允许线程库提供更有效的互斥量实现，
+2. 健壮性属性，当互斥量进程终止的时候，需要解决互斥量状态恢复的问题。
+3. 类型属性，控制互斥量锁定的特性
+
+### 12.3.2 读写锁属性
+使用 `pthread_rwlockattr_t` 类型表示，唯一支持的属性是**进程共享**属性。
+
+### 12.3.3 条件变量属性
+使用 `pthread_condattr_t` 类型表示，支持**进程共享**属性，控制条件变量可以被单进程多个线程使用，还是可以被多进程的线程使用。
+支持**时钟**属性，用来指定超时使用的哪个时钟。
+
+### 12.3.4 屏障属性
+使用 `pthread_barrierattr_t` 类型表示，只支持**进程共享**属性。
+
+## 12.4 重入
+如果一个函数在同一时间点可以被多个线程安全使用，那么该函数是线程安全的。对于一些非线程安全的函数，会提供可替代的线程安全的版本。如果一个函数对于多个线程是可重入的，就说这个函数是线程安全的，但是这并不能说明对信号处理程序来说该函数是可重入的。
+
+## 12.5 线程特定数据
+线程特定数据（`thread-specific data`)，也称为线程私有数据（`thread-private data`)是存储和查询某个特定线程数据的一种机制。在分配线程特定数据之前，需要创建于该数据关联的键。这个键用于获取对该线程特定数据的访问。
+```c
+#include<pthread.h>
+int pthread_key_create(pthread_key_t *keyp, void (*destructor)(void *));
+```
+创建的键存储在 `keyp`指向的内存单元，这个键可以被进程中所有的线程使用，但是每个线程把这个键与不同的线程特定数据地址进行关联，`destructor` 指定这个键关联的析构函数。
+
+## 12.6 取消选项
+可取消状态属性可以是 `PTHREAD_CANCEL_ENABLE` 或者 `PTHREAD_CANCEL_DISABLE`
+```c
+# include <pthread.h>
+int pthread_setcancelstate(int state, int *oldstate);
+```
+`pthread_cancel` 并不等待线程终止，默认线程在取消请求发出后还是继续运行，知道线程到达某个取消点。通常在调用某些函数的时候会测试该线程是否到达取消点。
+
+## 12.7 线程和信号
+每个线程都有自己的信号屏蔽字，但是信号的处理是进程中所有的线程共享的。这意味着单个线程可以阻止某些信号，但是当其他线程修改后，所有的线程必须共享这个处理行为的改变。
+进程中的信号是投递到单个线程中，如果一个信号与硬件相关，那么该信号发送至引起该事件的线程中去，其他信号则发送至任意一个线程。可以通过 `pthread_kill` 将信号发送给线程
+```c
+#include <signal.h>
+int pthread_kill(pthread_t thread, int signo);
+```
+
+## 12.8 进程和 `fork`
+在线程中调用 `fork`，就为子进程创建了整个进程的地址空间的副本，而且从父进程那继承了每个互斥量、读写锁和条件变量。在子进程内部，只有一个线程，就是父进程中调用 `fork` 的线程副本构成。如果父进程中的线程占有锁，子进程也将占有同样的锁，问题是子进程并不包含占有锁的线程副本，所以子进程并不知道它占有了哪些锁，需要释放哪些锁。
+为了避免不一致情况，子进程只能调用异步信号安全的函数，要清除锁状态，调用 `pthread_atfork` 函数建立 `fork` 处理程序。
+```c
+#include <pthread.h>
+int pthread_atfork(void (*preapre) (void), void (*parent) (void), void (*child) (void));
+```
+- `prepare` fork 处理程序有父进程在 `fork` 创建子进程前调用，主要是获取父进程定义的所有锁；
+- `parent` fork 创建子进程以后、返回之前在父进程上下文使用，对 `prepare` fork 处理程序获取的所有锁进行解锁。
+- `child` fork 处理程序在 `fork` 返回之前在子进程上下文中调用。用来释放 `prepare` 处理程序获取的锁。
+
+## 12.9 线程和 `I/O`
+`pread` 和 `pwrite` 是线程安全的 `I/O` 读写。
+
+
+# 13 守护进程
+
+## 13.1 守护进程特征
+使用 `ps -axj` 显示所有进程
+```shell
+USER               PID  PPID  PGID   SESS JOBC STAT   TT       TIME COMMAND
+root                 1     0     1      0    0 Ss     ??   69:07.76 /sbin/launchd
+root                46     1    46      0    0 Ss     ??    3:36.34 /usr/sbin/syslogd
+root                47     1    47      0    0 Ss     ??    0:46.01 /usr/libexec/UserEventAgent (System)
+root                50     1    50      0    0 Ss     ??    0:49.47 /System/Library/PrivateFrameworks/Uninstall.framework/Resources/uninstal
+```
+父进程为 `0` 的进程都是内核进程， `init` （或者 `launchd`) 除外。内核守护进程出现在方括号中，而且守护进程的终端都是 `?`，表明以无控制终端的方式启动。
+- `rpcbind` 守护进程提供远程调用程序号映射为网络端口号。
+- `rsyslogd` 守护进程可以有管理员启动将系统的消息记录到日志的任何程序使用
+- `inetd` 侦听网络接口
+- `nfsd, nfsiod, lockd, rpciod, rpc.idmapd, rpc.statd` 提供网络文件系统。
+- `cron` 守护进程在定期安排的日期和时间执行命令
+
+## 13.2 创建守护进程的规则
+1. 调用 `umask` 将文件模式创建屏蔽字设置为一个已知值。
+2. 调用 `fork` 然后使父进程 `exit`.
+3. 调用 `setsid` 创建新的会话。
+4. 将当前的工作目录修改为根目录。
+5. 关闭不在需要的文件描述符
+6. 某些守护进程打开 `/dev/null` 使其文件描述符为 `0, 1, 2`。
+
+## 13.3 出错记录
+
+![](./_image/2019-07-26-19-57-11.jpg)
+- 内核例程可以调用 `log` 函数。
+- 大多数用户进程（守护进程）调用 `syslog` 函数来产生日志消息，这类消息被发送至 `UNIX` 域数据报套字节 `/dev/log` 中。
+- 无论一个用户进程在此主机还是通过 `TCP/IP` 网络连接到此主机的其他主机上，都可以将消息发送个 `UDP` 端口 514。
+
+`syslogd` 守护进程读取 `/etc/syslog.conf` 文件，决定不同种类的消息应要发送到何处，函数接口如下：
+```c
+# include <syslog.h>
+void openlog(const char *ident, int option, int facility);
+void syslog(int priority, const char* format...);
+void closelog(void);
+int setlogmask(int maskpri);
+```
+直接调用 `syslog` 即可，其中 `priority` 是 `facility` 和 `level` 的组合。
+
+## 13.4 守护进程惯例
+- 若守护进程使用锁文件，则该文件通常存储在 `/var/run` 目录中，通常锁文件的名称为 `name.pid`。
+- 若守护进程支持配置文件，那么配置文件通常放在 `/etc` 目录中，而且名称 `name.conf`。
+- 守护进程可以用命令行启动，通常为初始化脚本为 `/etc/rc*` 或者 `/etc/init.d/*`
+- 如果守护进程有一个配置文件，只在启动的时候查看，之后将不会再读取。
+
+
+# 14 高级I/O
+
+
+## 14.1 非阻塞 `I/O`
+进程可能永远阻塞的**低速**系统调用
+- 某些文件类型的数据并不存在，读操作可能导致会使使用者永远阻塞；
+- 数据不能被相同类型的文件类型立即接受，写操作可能被调用者永远阻塞；
+- 在某种条件发生之前打开某些文件类型发生阻塞；
+- 对已经加上强制性锁的文件进行读写；
+- 某些 `ioctl` 操作；
+- 某些进程间通信函数。
+
+非阻塞的 `i/o` 可以发出非阻塞的 `open`, `read` 和 `write` 这样 `I/O` 操作。
+- 使用使用 `open` 获得文件描述符，可以指定 `O_NOBLOCK` 标志；
+- 对于已经打开的标识符，使用 `fcntl` 函数打开。
+
+## 14.2 记录锁
+记录锁（`record locking`）功能是：当第一个进程正在读或者修改文件的某个部分时，使用记录锁可能阻止其他进程修改同一个文件区。
+```c
+# include <fcntl.h>
+int fcntl(int fd, int cmd, .../* struct flock *flockptf */);
+```
+`cmd` 可以是 `F_GETLK`, `F_SETLK` 和 `F_SETLKW`, 第三个参数是指向 `flock` 结构的指针
+```c
+struct flock {
+  short l_type;
+  short l_whence;
+  off_t l_start;
+  off_t l_len;
+  pid_t l_pid;  
+};
+```
+- `l_type` 所希望的锁类型；
+- `l_start` 要加锁的或者解锁的起始字节偏移量；
+- `l_len` 区域的字节长度；
+- `l_pid` 持有锁能阻塞当前的进程。
+
+上述的锁类型可以分为：共享读锁和独占性写锁。如果进程对一个文件区间已经有一把锁，那么后来进程又企图在同一文件区间再加一把锁，那么新的锁将替换已有的锁。
+记录锁自动继承和释放的 3 条规则
+1. 锁与进程和文件两者关联，当一个进程终止的时，它所建立的锁全部释放；无论一个描述符何时关闭，该进程通过这一个描述符所引用的文件上的任何一把锁都会释放；
+2. 由 `fork` 产生的子进程都不继承父进程所设置的锁；
+3. 执行 `exec` 后，新程序可以继承原执行程序的锁，但是注意如果对一个文件描述符执行关闭标志，则释放相应的文件的所有锁。
+
+**建议锁**和**强制性锁**
+建议锁并不能阻止对数据库文件有写权限的其他进程写这个数据库文件，强制性锁会让内核检查每个 `open`, `read` 和 `write` ，验证调用进程是否违背正在访问的文件上加一把锁。
+
+## 14.3 `I/O` 多路转接
+非阻塞 `I/O` 设计方法
+1. 采用轮询方式，依次读取各个文件描述符，判断是否满足读写条件。
+2. 异步 `I/O`，进程告知内核当描述符准备好之后可以进行 `I/O`，用一个信号通知。
+3. `I/O` 多路转接(`I/O multiplexing`)，构造感兴趣的描述符列表，然后调用一个函数直到一个函数描述符准备好。
+
+### 14.3.1 `select` 和  `pselect` 函数
+```c
+# include <sys/select.h>
+int select(int maxfdp1, fd_set *restrict readfds, fd_set *restrict writefds, fd_set *restrict exceptfds, struct timeval *restrict tvptr);
+```
+参数
+- 我们所关心的描述符；
+- 对于每个描述我们所关心的条件；
+- 原因等待的时间；
+返回
+- 已经准备好的描述符总数量
+- 对于读、写或者异常这 3 个条件每一个哪一个已经准备好。
+
+最后一个参数表明愿意等待的时间
+1. `tvptr == NULL`：永远等待；
+2. `tvptr->tv_sec == 0 && tvptr->tv_uses == 0` 立即返回，类似单个轮询；
+3. `ptptr->tv_sec != 0 || tvptr->tv_usec != 0` 等待指定的秒数和微纳秒
+
+`select` 可能有 3 个返回值
+1. `-1` 表示出错
+2. `0` 表示描述符没有准备好；
+3. 正返回值说明已经已经准备好描述符，该值是 3 个描述符中准备好的描述符之和。
+
+`pselect` 其中的一个变体。
+
+### 14.3.2 `poll` 函数
+```c
+# include <poll.h>
+int poll(struct pollfd fdarray[], nfds_t nfds, int timeout);
+struct pollfd {
+  int fd;
+  short events;
+  short revent;  
+};
+```
+每个数组元素的 `event` 成员告诉这些内核我们关心每个描述符哪些事件，返回时， `revents` 成员由内核设置，用于说明每个描述符发生了那些事情。
+
+## 14.4 异步 `I/O`
+使用一个信号通知进程，对某个描述符所关心的某个事件已经发生，使用 `AIO` 控制块描述 `I/O` 操作
+```c
+struct aiocb {
+    int aio_fileds;
+    off_t aio_offset;
+    volatile void *aio_buf;
+    size_t aio_nbytes;
+    int aio_reqrio;
+    struct sigevent aio_sigevent;
+    int aio_lio_opcode;
+};
+```
+- `aio_fileds`: 用来读写的文件描述符；
+- `aio_offset`: 指定文件开始偏移量；
+- `aio_buf`: 指定的开始位置；
+- `aio_nbytes`: 包含了要读和写的字节数；
+
+在 `I/O` 事件完成后，通过 `sigevent` 结构来通知应用程序
+```c
+struct {
+    int sigev_notify;
+    int sigev_signo;
+    union sigval sigev_value;
+    void (*sigev_notify_function)(union_sigval);
+    phread_attr_t *sigenv_notify_attributes;
+};
+```
+- `signo_notify` 通知类型
+    - `SIGEV_NONE`: 不通知进程
+    - `SIGEV_SIGNAL`: 异步 `I/O` 请求完成后，产生指定的信号
+    - `SIGEV_THREAD`: 异步 `I/O` 请求完成时，调用 `sigev_notify_function` 字段指定的函数被执行。
+
+```c
+# include <aio.h>
+int aio_read(struct aiocb *aiocb);
+int aio_write(struct aiocb *aiocb);
+```
+这些函数返回时，异步 `I/O` 请求都被操作系统放入处理等待队列中了。
+
+## 14.5 `readv` 和 `writev` 函数
+在一次函数中调用读和写过个非连续缓冲区
+```c
+#include <sys/uio.h>
+ssize_t readv(int fd, const struct iovec *lov, int lovcnt);
+ssize_t write(int fd, const struct iovec *lov, int lovcnt);
+struct iovec {
+    void *iov_base;
+    size_t iov_len;
+}
+```
+
+## 14.6 存储映射 `I/O`
+将一个磁盘文件映射到存储空间上的一个缓冲区，不在 `read` 和 `write` 的情况下进行 `I/O`
+```c
+# include <sys/mman.h>
+void *mmap(void *addr, size_t len ,int port, int flag, int fd, off_t off);
+```
+- `addr` 参数用于指定存储区的起始位置；
+- `fd` 用于指定被映射文件的描述符；
+- `prot` 指定映射区的保护要求
+    - `PROT_READ` 可读
+    - `PROT_WRITE`: 可写
+    - `PROT_EXEC`可执行
+    - `PROT_NONE` 不可访问
+- `flag` 指定属性
+- `off` 指定磁盘文件的偏移量
+
+
+![](./_image/2019-07-28-17-31-09.jpg)
+
+
+# 15 进程间通信
+
+## 15.1 管道
+管道具有以下局限性
+1. 历史上，管道都是半双工的（数据只能在一个方向上流动）
+2. 管道只能在具有公共祖先的的进程之间使用。
+
+创建管道
+```c
+# include <unistd.h>
+int pipe(int fd[2]);
+```
+`fd[1]` 的输出是 `fd[0]` 的输入。单进程的管道没有意义，通常进程首先调用 `pipe`，接着调用 `fork`，从而创建父进程到子进程的 `IPC` 通道。然后关闭各自相关的描述符构建数据流方向。
+![](./_image/2019-07-31-19-42-35.jpg?r=62)
+当管道一端被关闭
+1. 当读一个写端已经被关闭的管道，在所有的数据被读取后，read  返回 0
+2. 当写一个读端硬被关闭的通道，则产生信号 `SIGPIPE`
+
+## 15.2 `popen` 和 `pclose` 函数
+函数原型
+```c
+#include <stdio.h>
+FILE *popen(const char *cmdstring, const char *type);
+int pclose(FILE *fp);
+```
+函数 `popen` 先执行 `fork`, 然后调用 `exec` 执行 `cmdstring`，并且返回一个标准的 `I/O` 文件指针，如果 `tyep` 是 `r`，则文件指针连接到 `cmdstring` 的标准输出；如果 `type` 是 `w`，则文件指针链接到 `cmdstring` 的标准输入。
+
+## 15.3 协同进程
+当一个过滤程序既产生某个过滤程序的输入，又读取过滤程序的输出时，就是协同进程。
+
+## 15.4 FIFO
+`FIFO` 又称命名管道，是一种文件类型，不相关的进程也能交换数据。
+```c
+# include <sys/stat.h>
+int mkfifo(const char *path, mode_t mode);
+int mkfifoat(int fd, const char *path, mode_t mode);
+```
+
+非阻塞标志
+- 在一般情况下(没有指定 `O_NONBLOCK`)，只读的 open 要阻塞其他继承为写而打开；
+- 如果指定了 `O_NONBLOCK`，只读的 open 立即返回，如果没有进程没有为其打开，则 `open` 返回 -1.
+
+## 15.5 XSI IPC
+主要包含消息队列、信号量和共享存储器。
+
+### 15.5.1 标识符和键
+内核中的每个 IPC  都使用非负整数加以标识，每个IPC 对象都有一个键（key）关联，这个键作为对象的外部名称。
+客户进程和服务端进程在同一个 IPC 结构上汇聚
+- 服务进程将返回的标识符存放在某个地方（文件）以便客户进程使用；
+- 在共用的头文件定义一个服务进程和客户进程都认可的键
+- 客户进程和服务进程认同一个路径名和项目 ID。
+
+### 15.5.2 缺点
+- IPC  没有引用计数；
+- IPC 结构在文件系统的灭于名字，常见的文件操作并没有作用，需要特别命令处理；
+- 不能使用文件描述符，不能使用多路复用的 `I/O` 函数。
+
+## 15.6 消息队列
+- msgget 用于创建新的队列或者打开现有的队列；
+- msgsnd 用于将消息发送至队列；
+- msgrcv 用于从队列中获取消息；
+
+每个消息有三个部分组成：一个正的长整类型的字段、一个非负的长度，以及实际的字节数。
+
+## 15.7 信号量
+它是一个计数器，用于多个进程提供共享对象的访问。
+需要完成的操作
+1. 测试控制该资源你的信号量
+2. 若次信号量为正，则可以使用资源，信号量减1
+3. 如果此信号量为 0， 则进入休眠状态；直至信号量大于 0， 唤醒该进程；
+4. 如果进程不再需要改资源，则信号量加 1 ；
+
+## 15.8 共享存储
+多个进程共享给定的存储区，不需要数据复制，因此最快。
+```c
+# include <sys/shm.h>
+int shmget(key_t key, size_t size, int flag);
+```
+进程可以连接到它的地址空间
+```c
+# include <sys/shm.h>
+void *shmat(int shmid, const void *addr, int flag);
+```
+
+# 16 网络IPC：套接字
+
+## 16.1 套接字描述符
+
+套接字是通信端点的抽象，正如使用文件描述符访问对象。
+```c
+# include <sys/socket.h>
+
+int socket (int domain, int type, int protocol);
+```
+- `domain` 确定了通信的特征，每个域由 `AF_` 开头
+    - `AF_INET`:  ipv4 
+    - `AF_INET6`:  ipv6
+    - `AF_UNIX`:  `UNIX` 域
+    - `AF_UPSPEC`: 未指定
+
+- `type` 指定套接字的类型
+    - `SOCK_DGRAM` : 固定长度，无连接，不可靠的报文传递
+    - `SOCK_RAW`： IP  协议的数据接口报文
+    - `SOCK_SEQPACKET`：固定长度的、有序的、可靠的、面向连接的报文传递
+    - `SOCK_STREAM`：有序的、可靠的、双向的、面向连接的字节流
+
+## 16.2 寻址
+每个地址标识都会被与特定的域相关，转换为如下结构
+```c
+struct scoketaddr {
+  sa_familly_t sa_family;
+  char sa_data[];  
+};
+```
+
+地址查询一般在 `/etc/hosts` 或者 `/etc/services` 中，也可以通过 `DNS` 系统获得。每个服务都是有一个众所周知的端口号支持，可以从服务到端口号，也可以从端口号到服务名。可以使用 `bind` 函数将一个服务和套接字关联在一起。
+```c
+# include <sys/socket.h>
+int bind(int sockfd, const struct *addr, socklen_t len);
+```
+- 进程正在运行的计算机上；
+- 地址必须和创建套接字的地址族所支持的格式的相匹配；
+- 地址中的端口必须不小于 1024；
+- 一般只能将一个套接字绑定到一个端口上。
+
+## 16.3 建立连接
+如果是面向连接的网络服务，需要在交换数据之前建立连接
+```c
+# include <sys/socket.h>
+int connect(int sockfd, const struct socketaddr *addr, socketlen_t len);
+```
+一但建立连接，可以调用 `listen` 函数表明愿意接受请求
+```c
+# include <sys/socket.h>
+int listen(int sockfd, int backlog);
+```
+一旦调用了 `listen`, 所用的的套接字就能接受连接请求：
+```c
+# include <sys/socket.h>
+int accept(int sockfd, struct socketaddr *restrict addr, socklen_t *restrict len);
+```
+## 16.4 数据
+**发送数据**
+```c
+# include <sys/socket.h>
+
+ssize_t send(int sockfd, const void *buf, size_t nbytes, int flags);
+```
+
+`send` 成功返回，表明数据已经无错误的发送到网络驱动程序上。
+
+**接受数据**
+
+```c
+# include <sys/socket.h>
+ssize_t recv(int sockfd, void *buf, size_t nbytes, int flags);
+```
+
+## 16.5 带外数据
+带外数据（out-of-band data) 是一种通信协议所支持的可选功能。TCP 只支持一个字节的带外数据，在发送的时候指定 `MSG_OOB` 。
+
+
+## 16.6 UNIX 域套接字
+`Unix` 域套接字用于在同一台计算机上运行的进程之间的通信，因为仅仅是复制数据，因此效率更高。
+```c
+# incldue <sys/socket.h>
+
+int socketpair(int domain, int type, int protocal, int sockfd[2]);
+```
+
+![](./_image/2019-08-01-20-17-46.jpg?r=50)
+
+命名 `Unix` 域套接字
+```c
+struct sockaddr_run{
+    sa_family sun_family; /* AF_UNIX */
+    char sun_path[108];  /* pathname */
+}
+```
+该成员包含一个路径名，该文件仅仅是像客户程序告示该套接字名字，无法打开也无法有应用程序进行通信。
